@@ -1,0 +1,181 @@
+{{ header }}{{ column_left }}
+<div id="content">
+  <div class="page-header">
+    <div class="container-fluid">
+      <div class="float-end">
+        <button type="submit" form="form-payment" data-bs-toggle="tooltip" title="{{ button_save }}" class="btn btn-primary"><i class="fa-solid fa-save"></i></button>
+        <a href="{{ back }}" data-bs-toggle="tooltip" title="{{ button_back }}" class="btn btn-light"><i class="fa-solid fa-reply"></i></a></div>
+      <h1>{{ heading_title }}</h1>
+      <ol class="breadcrumb">
+        {% for breadcrumb in breadcrumbs %}
+          <li class="breadcrumb-item"><a href="{{ breadcrumb.href }}">{{ breadcrumb.text }}</a></li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+  <div class="container-fluid">
+    <div class="card">
+      <div class="card-header"><i class="fa-solid fa-pencil"></i> {{ text_edit }}</div>
+      <div class="card-body">
+        <form id="form-payment" action="{{ save }}" method="post" data-oc-toggle="ajax">
+
+          <div class="row mb-3">
+            <label class="col-sm-2 col-form-label">{{ entry_status }}</label>
+            <div class="col-sm-10">
+              <div class="form-check form-switch form-switch-lg">
+                <input type="hidden" name="payment_synra_pay_status" value="0"/>
+                <input type="checkbox" name="payment_synra_pay_status" value="1" id="input-status" class="form-check-input"{% if payment_synra_pay_status %} checked{% endif %}/>
+              </div>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-environment" class="col-sm-2 col-form-label">{{ entry_environment }}</label>
+            <div class="col-sm-10">
+              <select name="payment_synra_pay_environment" id="input-environment" class="form-select">
+                <option value="develop"{% if payment_synra_pay_environment == 'develop' %} selected{% endif %}>{{ text_develop }}</option>
+                <option value="sandbox"{% if payment_synra_pay_environment == 'sandbox' %} selected{% endif %}>{{ text_sandbox }}</option>
+                <option value="live"{% if payment_synra_pay_environment == 'live' %} selected{% endif %}>{{ text_live }}</option>
+              </select>
+            </div>
+          </div>
+
+          <fieldset class="mb-3">
+            <legend>{{ text_credentials }}</legend>
+            <p class="text-muted small">{{ text_credentials_help }}</p>
+
+            <div class="row mb-3 required">
+              <label for="input-merchant-id" class="col-sm-2 col-form-label">{{ entry_merchant_id }}</label>
+              <div class="col-sm-10">
+                <input type="text" name="payment_synra_pay_merchant_id" value="{{ payment_synra_pay_merchant_id }}" id="input-merchant-id" class="form-control" autocomplete="off"/>
+                <div class="form-text">{{ help_merchant_id }}</div>
+                <div id="error-merchant-id" class="invalid-feedback"></div>
+              </div>
+            </div>
+
+            <div class="row mb-3 required">
+              <label for="input-api-key" class="col-sm-2 col-form-label">{{ entry_api_key }}</label>
+              <div class="col-sm-10">
+                <input type="password" name="payment_synra_pay_api_key" value="" id="input-api-key" class="form-control" autocomplete="new-password" placeholder="{% if api_key_set %}•••••••• ({{ text_keep }}){% endif %}"/>
+                <div class="form-text">{{ help_api_key }}</div>
+                <div id="error-api-key" class="invalid-feedback"></div>
+              </div>
+            </div>
+
+            <div class="row mb-3">
+              <label for="input-fallback-phone" class="col-sm-2 col-form-label">{{ entry_fallback_phone }}</label>
+              <div class="col-sm-10">
+                <input type="text" name="payment_synra_pay_fallback_phone" value="{{ payment_synra_pay_fallback_phone }}" id="input-fallback-phone" class="form-control" inputmode="numeric"/>
+                <div class="form-text">{{ help_fallback_phone }}</div>
+                <div id="error-fallback-phone" class="invalid-feedback"></div>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="mb-3">
+            <legend>{{ text_webhook }}</legend>
+
+            <div class="row mb-3">
+              <label for="input-webhook-key" class="col-sm-2 col-form-label">{{ entry_webhook_key }}</label>
+              <div class="col-sm-10">
+                <input type="password" name="payment_synra_pay_webhook_key" value="" id="input-webhook-key" class="form-control" autocomplete="new-password" placeholder="{% if webhook_key_set %}•••••••• ({{ text_keep }}){% endif %}"/>
+                <div class="form-text">{{ help_webhook_key }}</div>
+              </div>
+            </div>
+
+            <div class="row mb-3">
+              <label for="input-x-api-key-name" class="col-sm-2 col-form-label">{{ entry_x_api_key_name }}</label>
+              <div class="col-sm-10">
+                <input type="text" name="payment_synra_pay_x_api_key_name" value="{{ payment_synra_pay_x_api_key_name }}" id="input-x-api-key-name" class="form-control"/>
+              </div>
+            </div>
+
+            <div class="row mb-3">
+              <label for="input-x-api-key" class="col-sm-2 col-form-label">{{ entry_x_api_key }}</label>
+              <div class="col-sm-10">
+                <input type="password" name="payment_synra_pay_x_api_key" value="" id="input-x-api-key" class="form-control" autocomplete="new-password" placeholder="{% if x_api_key_set %}•••••••• ({{ text_keep }}){% endif %}"/>
+                <div class="form-text">{{ help_x_api_key }}</div>
+              </div>
+            </div>
+
+            <div class="row mb-3">
+              <label class="col-sm-2 col-form-label">{{ entry_webhook_url }}</label>
+              <div class="col-sm-10">
+                <input type="text" value="{{ webhook_url }}" class="form-control" readonly onclick="this.select()"/>
+                <div class="form-text">{{ text_webhook_help }}</div>
+              </div>
+            </div>
+
+            <div class="row mb-3">
+              <label class="col-sm-2 col-form-label">{{ entry_origin }}</label>
+              <div class="col-sm-10">
+                <input type="text" value="{{ origin }}" class="form-control" readonly onclick="this.select()"/>
+                <div class="form-text">{{ text_origin_help }}</div>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="mb-3">
+            <legend>{{ text_statuses }}</legend>
+
+            <div class="row mb-3">
+              <label for="input-order-status" class="col-sm-2 col-form-label">{{ entry_order_status }}</label>
+              <div class="col-sm-10">
+                <select name="payment_synra_pay_order_status_id" id="input-order-status" class="form-select">
+                  {% for order_status in order_statuses %}
+                    <option value="{{ order_status.order_status_id }}"{% if order_status.order_status_id == payment_synra_pay_order_status_id %} selected{% endif %}>{{ order_status.name }}</option>
+                  {% endfor %}
+                </select>
+                <div class="form-text">{{ help_order_status }}</div>
+              </div>
+            </div>
+
+            <div class="row mb-3">
+              <label for="input-pending-status" class="col-sm-2 col-form-label">{{ entry_pending_status }}</label>
+              <div class="col-sm-10">
+                <select name="payment_synra_pay_pending_status_id" id="input-pending-status" class="form-select">
+                  {% for order_status in order_statuses %}
+                    <option value="{{ order_status.order_status_id }}"{% if order_status.order_status_id == payment_synra_pay_pending_status_id %} selected{% endif %}>{{ order_status.name }}</option>
+                  {% endfor %}
+                </select>
+                <div class="form-text">{{ help_pending_status }}</div>
+              </div>
+            </div>
+
+            <div class="row mb-3">
+              <label for="input-failed-status" class="col-sm-2 col-form-label">{{ entry_failed_status }}</label>
+              <div class="col-sm-10">
+                <select name="payment_synra_pay_failed_status_id" id="input-failed-status" class="form-select">
+                  {% for order_status in order_statuses %}
+                    <option value="{{ order_status.order_status_id }}"{% if order_status.order_status_id == payment_synra_pay_failed_status_id %} selected{% endif %}>{{ order_status.name }}</option>
+                  {% endfor %}
+                </select>
+                <div class="form-text">{{ help_failed_status }}</div>
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="row mb-3">
+            <label for="input-geo-zone" class="col-sm-2 col-form-label">{{ entry_geo_zone }}</label>
+            <div class="col-sm-10">
+              <select name="payment_synra_pay_geo_zone_id" id="input-geo-zone" class="form-select">
+                <option value="0">{{ text_all_zones }}</option>
+                {% for geo_zone in geo_zones %}
+                  <option value="{{ geo_zone.geo_zone_id }}"{% if geo_zone.geo_zone_id == payment_synra_pay_geo_zone_id %} selected{% endif %}>{{ geo_zone.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-sort-order" class="col-sm-2 col-form-label">{{ entry_sort_order }}</label>
+            <div class="col-sm-10">
+              <input type="text" name="payment_synra_pay_sort_order" value="{{ payment_synra_pay_sort_order }}" placeholder="{{ entry_sort_order }}" id="input-sort-order" class="form-control"/>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{{ footer }}

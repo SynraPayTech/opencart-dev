@@ -1,0 +1,162 @@
+{# SynraPay hosted session on the OpenCart confirm step — same flow as the WooCommerce plugin:
+     page → .session   store creates the Direct order + hosted session → clientToken
+     page → sdk.js     SynraPayFields.create: the card is typed into SynraPay's frame
+     Pay  → submit()   3-D Secure in an overlay; redirect:false
+     page → .confirm   the store reads the ORDER's status and moves the OpenCart order → checkout/success
+   This block is injected into #checkout-payment by the checkout page (jQuery .load), possibly
+   several times; the script tears down a previous instance before it starts. #}
+<div id="synra-pay-hs" class="synra-pay-hs">
+  <style>
+    .synra-pay-hs { max-width: 520px; }
+    .synra-pay-hs .synra-pay-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .synra-pay-hs .synra-pay-head small { color: #6b7280; }
+    .synra-pay-hs .synra-pay-test { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+    .synra-pay-hs .synra-pay-mount { min-height: 150px; position: relative; }
+    .synra-pay-hs .synra-pay-sk { display: block; background: linear-gradient(90deg, #eef0f4 25%, #f7f8fa 37%, #eef0f4 63%); background-size: 400% 100%; animation: synra-sh 1.4s infinite; border-radius: 6px; margin-bottom: 10px; }
+    .synra-pay-hs .synra-pay-sk-label { width: 36%; height: 12px; } .synra-pay-hs .synra-pay-sk-field { height: 44px; margin-bottom: 14px; }
+    .synra-pay-hs .synra-pay-sk-row { display: flex; gap: 12px; } .synra-pay-hs .synra-pay-sk-half { flex: 1; height: 44px; }
+    @keyframes synra-sh { 0% { background-position: 100% 0 } 100% { background-position: 0 0 } }
+    .synra-pay-hs .synra-pay-status { font-size: 13px; margin: 10px 0 0; min-height: 1em; }
+    .synra-pay-hs .synra-pay-status.is-error { color: #b91c1c; } .synra-pay-hs .synra-pay-status.is-muted { color: #6b7280; }
+    .synra-pay-hs .synra-pay-foot { margin-top: 10px; font-size: 11.5px; color: #9ca3af; }
+    .synra-pay-hs .synra-pay-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.7); display: none; align-items: center; justify-content: center; font-size: 14px; color: #374151; z-index: 1050; }
+    .synra-pay-hs .synra-pay-overlay.on { display: flex; }
+  </style>
+  <div class="synra-pay-head">
+    <div><strong>{{ text_title }}</strong><br><small>{{ text_description }}</small></div>
+    <div>{% if test %}<span class="synra-pay-test">{{ text_test_mode }}</span>{% endif %}</div>
+  </div>
+  <div class="synra-pay-mount" id="synra-pay-mount">
+    <div id="synra-pay-skeleton" aria-hidden="true">
+      <span class="synra-pay-sk synra-pay-sk-label"></span><span class="synra-pay-sk synra-pay-sk-field"></span>
+      <span class="synra-pay-sk-row"><span class="synra-pay-sk synra-pay-sk-half"></span><span class="synra-pay-sk synra-pay-sk-half"></span></span>
+    </div>
+    <div id="synra-pay-fields" style="display:none"></div>
+  </div>
+  <p class="synra-pay-status" id="synra-pay-status"></p>
+  <div class="text-end mt-3">
+    <button type="button" id="synra-pay-button" class="btn btn-primary" disabled>{{ button_pay }}</button>
+  </div>
+  <div class="synra-pay-foot">{{ text_secure }}</div>
+  <div class="synra-pay-overlay" id="synra-pay-overlay"><span id="synra-pay-overlay-text"></span></div>
+</div>
+<script id="synra-pay-config" type="application/json">{{ config_json|raw }}</script>
+<script>
+(function (w, d) {
+  'use strict';
+  if (w.SynraOC && w.SynraOC.destroy) { try { w.SynraOC.destroy(); } catch (e) {} }
+  var cfg = JSON.parse(d.getElementById('synra-pay-config').textContent);
+  var i18n = cfg.i18n || {};
+  var $ = function (id) { return d.getElementById(id); };
+  var skel = $('synra-pay-skeleton'), host = $('synra-pay-fields'), statusEl = $('synra-pay-status'), payBtn = $('synra-pay-button'), overlay = $('synra-pay-overlay');
+  var state = { fields: null, session: null, complete: false, busy: false, resultWaiter: null, sdkPromise: null, dead: false };
+
+  function setStatus(msg, kind) { if (state.dead) return; statusEl.textContent = msg || ''; statusEl.className = 'synra-pay-status' + (kind ? ' is-' + kind : ''); }
+  function setError(msg) { skeleton(false); setStatus(msg, 'error'); }
+  function skeleton(on) { skel.style.display = on ? '' : 'none'; host.style.display = on ? 'none' : ''; }
+  function setBusy(on, msg) { state.busy = on; overlay.className = 'synra-pay-overlay' + (on ? ' on' : ''); $('synra-pay-overlay-text').textContent = msg || ''; updateButton(); }
+  function updateButton() { payBtn.disabled = state.busy || !state.fields || !state.complete || expired(); }
+  function expired() { if (!state.session || !state.session.expiresAt) return false; var t = Date.parse(state.session.expiresAt); return isFinite(t) && t - Date.now() < 15000; }
+
+  function loadSdk(url) {
+    if (w.SynraPayFields) return Promise.resolve(w.SynraPayFields);
+    if (state.sdkPromise) return state.sdkPromise;
+    state.sdkPromise = new Promise(function (resolve, reject) {
+      var s = d.createElement('script'); s.src = url || cfg.sdkUrl; s.async = true;
+      s.onload = function () { w.SynraPayFields ? resolve(w.SynraPayFields) : reject(new Error(i18n.sdkFailed)); };
+      s.onerror = function () { state.sdkPromise = null; reject(new Error(i18n.sdkFailed)); };
+      d.head.appendChild(s);
+    });
+    return state.sdkPromise;
+  }
+
+  function post(url, data) {
+    var body = new FormData();
+    Object.keys(data || {}).forEach(function (k) { if (data[k] != null) body.append(k, String(data[k])); });
+    return fetch(url, { method: 'POST', credentials: 'same-origin', body: body, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, status: 'error', error: 'The store did not answer (HTTP ' + r.status + ').' }; }); });
+  }
+
+  /* Open (or re-open) the session for this order and mount SynraPay's fields. */
+  function sync(opts) {
+    opts = opts || {};
+    setStatus('', ''); skeleton(true); state.complete = false; updateButton();
+    return post(cfg.sessionUrl, { fresh: opts.fresh ? '1' : '' }).then(function (r) {
+      if (state.dead) return;
+      if (!r || !r.ok || !r.clientToken) {
+        if (r && r.redirect) { w.location.assign(r.redirect); return; }
+        throw new Error((r && r.error) || 'Could not start the card session.');
+      }
+      state.session = r;
+      return loadSdk(r.sdkUrl).then(function (SDK) {
+        if (state.dead) return;
+        if (state.fields) { try { state.fields.destroy(); } catch (e) {} }
+        host.textContent = '';
+        var f = SDK.create({
+          clientToken: r.clientToken,
+          container: host,
+          name: 'optional',
+          theme: 'auto',
+          challenge: 'overlay',   // 3-D Secure in a box over the checkout; the page never leaves
+          redirect: false,        // the store confirms the ORDER; the frame's result is only shown
+          style: { fontFamily: 'inherit', borderRadius: '8px' }
+        });
+        state.fields = f;
+        f.on('ready', function () { skeleton(false); setStatus('', ''); updateButton(); });
+        f.on('change', function (s) { state.complete = !!(s && s.complete); updateButton(); });
+        f.on('enter', function () { if (!payBtn.disabled) pay(); });
+        f.on('result', function (res) { if (state.resultWaiter) { var fn = state.resultWaiter; state.resultWaiter = null; fn(res || {}); } });
+        f.on('error', function (e) {
+          if (e && e.code === 'HOSTED_FIELDS_SESSION_EXPIRED') { setStatus(i18n.expired, 'muted'); sync({ fresh: false }); return; }
+          setError((e && e.message) || 'The card fields reported a problem.' + (e && e.reference ? ' Reference: ' + e.reference : ''));
+        });
+      });
+    }).catch(function (e) { setError(e.message); });
+  }
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function confirm(maxTries, frameOk) {
+    var tries = maxTries || 60;
+    function once() {
+      return post(cfg.confirmUrl, { frame_ok: frameOk ? '1' : '' }).then(function (r) {
+        if (r && r.status === 'paid' && r.redirect) return { paid: true, redirect: r.redirect };
+        if (r && (r.status === 'failed' || r.status === 'error')) return { paid: false, failed: true, message: r.error, redirect: r.redirect };
+        if (--tries <= 0) return { paid: false, failed: false, message: i18n.declined };
+        return sleep(1500).then(once);
+      });
+    }
+    return once();
+  }
+
+  function pay() {
+    if (state.busy) return;
+    if (!state.fields || expired()) { setError(i18n.notReady); sync({ fresh: false }); return; }
+    if (!state.complete) { setError(i18n.incomplete); return; }
+    setBusy(true, i18n.processing); setStatus(i18n.processing, 'muted');
+
+    var f = state.fields;
+    var viaEvent = new Promise(function (resolve) { state.resultWaiter = resolve; });
+    var viaSubmit = f.submit(); viaSubmit.catch(function () {});
+    Promise.race([viaSubmit, viaEvent]).then(function (r) {
+      state.resultWaiter = null; r = r || {};
+      if (r.ok || r.retry === 'check_status' || r.navigating) { setStatus(i18n.confirming, 'muted'); setBusy(true, i18n.confirming); return confirm(0, !!r.ok); }
+      // retry: new_order (the order is closed) — one quick read settles it; anything else is a decline on an order that stays open.
+      if (r.retry === 'new_order') return confirm(2).then(function (c) { return c.paid ? c : { paid: false, failed: true, message: r.error_message || c.message }; });
+      return { paid: false, failed: true, message: r.error_message || i18n.declined };
+    }).then(function (out) {
+      if (out.paid) { setStatus(i18n.confirming, 'muted'); w.location.assign(out.redirect); return; }
+      if (out.redirect) { w.location.assign(out.redirect); return; }
+      setBusy(false);
+      setError(out.message || i18n.declined);
+      // The frame shows its own "declined" screen; open a clean session (a new Direct order) for the next try.
+      sync({ fresh: true });
+    }).catch(function (e) { setBusy(false); setError((e && e.message) || 'The payment could not be sent.'); });
+  }
+
+  payBtn.addEventListener('click', pay);
+  w.SynraOC = {
+    destroy: function () { state.dead = true; if (state.fields) { try { state.fields.destroy(); } catch (e) {} } state.fields = null; }
+  };
+  sync();
+})(window, document);
+</script>
