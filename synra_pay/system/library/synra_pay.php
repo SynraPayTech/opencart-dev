@@ -24,7 +24,7 @@ if (class_exists('SynraPayDirectClient', false)) {
 
 class SynraPayDirectClient
 {
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.1';
 
     const ENVS = [
         'develop' => ['api' => 'https://dev-api.synrapay.com/v1',     'sdk' => 'https://dev.js.synrapay.com/direct/v1/sdk.js',     'label' => 'Develop', 'prefix' => 'hs_dev_'],
@@ -223,6 +223,28 @@ class SynraPayDirectClient
     {
         return (isset($data['confirmation']) && $data['confirmation'] === 'awaiting_mastercard')
             || !empty($data['gateway_transaction_id']) || !empty($data['transaction_id']) || !empty($data['transactionid']);
+    }
+
+    /**
+     * The id the SynraPay merchant dashboard shows as "Transaction ID": synrapay_transaction_id
+     * (our reference number) when the answer carries it, else the Direct API order_id ($fallback).
+     */
+    public static function transactionRef(array $data, string $fallback): string
+    {
+        $id = trim((string) ($data['synrapay_transaction_id'] ?? ''));
+        return $id !== '' ? $id : $fallback;
+    }
+
+    /** The authorisation (approval) code, when the answer carries one. */
+    public static function authCode(array $data): string
+    {
+        foreach (['authorization_code', 'auth_code', 'approval_code'] as $k) {
+            $v = trim((string) ($data[$k] ?? ''));
+            if ($v !== '') {
+                return $v;
+            }
+        }
+        return '';
     }
 
     /** The environment a hosted-session client token was minted in, or '' when unprefixed. */
