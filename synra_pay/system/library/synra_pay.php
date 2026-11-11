@@ -221,17 +221,19 @@ class SynraPayDirectClient
     /** Does the status read show a payment was actually attempted (frame_ok may only be honoured then)? */
     public static function evidence(array $data): bool
     {
+        // transaction_id is not evidence: every status answer carries it (it equals order_id).
         return (isset($data['confirmation']) && $data['confirmation'] === 'awaiting_mastercard')
-            || !empty($data['gateway_transaction_id']) || !empty($data['transaction_id']) || !empty($data['transactionid']);
+            || !empty($data['gateway_transaction_id']);
     }
 
     /**
-     * The id the SynraPay merchant dashboard shows as "Transaction ID": synrapay_transaction_id
-     * (our reference number) when the answer carries it, else the Direct API order_id ($fallback).
+     * The id the SynraPay merchant dashboard shows as "Transaction ID": transaction_id, which every
+     * Direct API answer carries and which always equals the Direct API order_id (one transaction id).
+     * Falls back to the Direct API order_id ($fallback) when the answer lacks it.
      */
     public static function transactionRef(array $data, string $fallback): string
     {
-        $id = trim((string) ($data['synrapay_transaction_id'] ?? ''));
+        $id = trim((string) ($data['transaction_id'] ?? ''));
         return $id !== '' ? $id : $fallback;
     }
 

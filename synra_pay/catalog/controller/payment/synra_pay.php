@@ -313,16 +313,16 @@ class SynraPay extends \Opencart\System\Engine\Controller
         $status   = strtolower((string) ($body['status'] ?? ''));
         $awaiting = isset($body['confirmation']) && $body['confirmation'] === 'awaiting_mastercard';
         if (!$awaiting && in_array($status, ['success', 'captured', 'authorized', 'paid'], true)) {
-            // The webhook body has no dashboard Transaction ID (its transactionId is the Direct order_id):
-            // ONE best-effort status read for it. Whatever happens there, the webhook still settles the order.
-            $ids = $this->statusIds((string) $link['direct_order_id']);
+            // The webhook's transactionId IS the dashboard Transaction ID (one transaction id, equal to
+            // the Direct order_id): no status read is needed for it. The signed body decides.
+            $txn_from_body = trim((string) ($body['transactionId'] ?? ''));
             $this->markPaid((int) $link['order_id'], $order_info, $link, [
-                'order_id'                => $link['direct_order_id'],
-                'status'                  => $status,
-                'amount'                  => $body['amount'] ?? null,
-                'currency'                => $body['currency'] ?? null,
-                'synrapay_transaction_id' => $ids['synrapay_transaction_id'] ?? '',
-                'authorization_code'      => ($ids['authorization_code'] ?? '') !== '' ? $ids['authorization_code'] : ($body['authorization_code'] ?? ($body['auth_code'] ?? '')),
+                'order_id'           => $link['direct_order_id'],
+                'transaction_id'     => $txn_from_body !== '' ? $txn_from_body : (string) $link['direct_order_id'],
+                'status'             => $status,
+                'amount'             => $body['amount'] ?? null,
+                'currency'           => $body['currency'] ?? null,
+                'authorization_code' => $body['authorization_code'] ?? ($body['auth_code'] ?? ''),
             ]);
         } elseif (!$awaiting && in_array($status, ['failed', 'cancelled', 'canceled', 'expired', 'declined'], true)) {
             $this->markFailed((int) $link['order_id'], $link, $status, (string) ($body['error_message'] ?? ''));
@@ -381,9 +381,9 @@ class SynraPay extends \Opencart\System\Engine\Controller
             $this->log->write('SynraPay: amount mismatch on #' . $order_id . ': paid ' . $paid_ccy . ' ' . $paid_amount . ' vs ' . $currency . ' ' . $total);
             return false;
         }
-        // The SynraPay merchant dashboard's Transaction ID = synrapay_transaction_id (else the Direct
-        // order_id). The Direct order_id stays in the link table for API calls. No gateway reference is
-        // stored or shown: it is internal to SynraPay.
+        // The SynraPay merchant dashboard's Transaction ID = transaction_id (else the Direct order_id;
+        // one transaction id, the same value). The Direct order_id stays in the link table as the key
+        // for API calls. No gateway reference is stored or shown: it is internal to SynraPay.
         $txn_id    = \SynraPayDirectClient::transactionRef($data, (string) $link['direct_order_id']);
         $auth_code = \SynraPayDirectClient::authCode($data);
         $none      = $this->language->get('text_not_available');
@@ -391,8 +391,7 @@ class SynraPay extends \Opencart\System\Engine\Controller
             $this->language->get('text_paid_history'),
             strtolower((string) ($data['status'] ?? 'captured')),
             $link['merchant_order_id'] !== '' ? $link['merchant_order_id'] : $none,
-            $txn_id !== '' ? $txn_id : $none,
-            $link['direct_order_id'] !== '' ? $link['direct_order_id'] : $none
+            $txn_id !== '' ? $txn_id : $none
         );
         if ($auth_code !== '') {
             $comment .= sprintf($this->language->get('text_paid_history_auth'), $auth_code);
@@ -425,36 +424,6 @@ class SynraPay extends \Opencart\System\Engine\Controller
     }
 
     /* ── helpers ─────────────────────────────────────────────────────────────── */
-
-    /**
-     * The dashboard Transaction ID and auth code from ONE short status read (webhook settlement):
-     * synrapay_transaction_id, authorization_code — strings, '' when absent. Any failure answers []
-     * and the caller falls back; it never throws.
-     */
-    private function statusIds(string $direct_order_id): array
-    {
-        if ($direct_order_id === '') {
-            return [];
-        }
-        try {
-            $client = $this->client();
-            if (!$client->isConfigured()) {
-                return [];
-            }
-            list($ok, $data) = $client->status($direct_order_id, 8);
-            if (!$ok || !is_array($data)) {
-                return [];
-            }
-            $ids = [];
-            foreach (['synrapay_transaction_id', 'authorization_code'] as $k) {
-                $ids[$k] = is_scalar($data[$k] ?? null) ? trim((string) $data[$k]) : '';
-            }
-            return $ids;
-        } catch (\Throwable $e) {
-            $this->log->write('SynraPay: webhook status read failed for ' . $direct_order_id . ': ' . $e->getMessage());
-            return [];
-        }
-    }
 
     private function client(): \SynraPayDirectClient
     {
