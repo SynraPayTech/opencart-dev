@@ -7,7 +7,7 @@ server.
 
 | | |
 |---|---|
-| 📦 Extension | `synra_pay` v1.0.0 — folder [`synra_pay/`](./synra_pay), zip `synra_pay.ocmod.zip` |
+| 📦 Extension | `synra_pay` v1.0.2 — folder [`synra_pay/`](./synra_pay), zip `synra_pay.ocmod.zip` |
 | 🛒 OpenCart | 4.0.2.0 or greater (written against 4.0.2.x) |
 | 🐘 PHP | 8.2 or greater |
 | 🔐 Integration | SynraPay Direct API — hosted session, signature v2 |
@@ -152,7 +152,7 @@ dist/                                          ready-to-install zip
 ### 🧑‍💻 Notes for developers
 
 - Rebuild the zip with `sh build-zip.sh` (uses `zip` or Windows `tar`; forward-slash entries).
-- Settings keys: `payment_synra_pay_*`. Link table `oc_synra_pay_order`: one row per order with the SynraPay order id, amount, currency, status and the history of superseded tries.
+- Settings keys: `payment_synra_pay_*`. Link table `oc_synra_pay_order`: one row per order with the SynraPay (Direct) order id used for API calls, the dashboard Transaction ID, auth code, amount, currency, status and the history of superseded tries.
 - OpenCart 4.1 renamed some checkout internals (`payment_method` session shape); verify `currentOrder()` there.
 - Refunds from the admin are not wired (Direct `/refund` is still a placeholder route).
 - Not included on purpose: hosted-checkout redirect mode.
@@ -161,6 +161,8 @@ dist/                                          ready-to-install zip
 
 ## 📝 Changelog
 
+- **1.0.2** (2026-11-11) One transaction id. The Direct API order id is the Transaction ID the merchant dashboard shows, and every Direct API answer carries `transaction_id` equal to it. The OpenCart transaction id is `transaction_id` (falling back to the Direct order id); `synrapay_transaction_id` is no longer read from the API (the link table column of that name is kept as storage). Webhook settlement takes the Transaction ID from the webhook body's `transactionId` and no longer makes a status read for it. The paid history line lists Merchant order ID, Transaction ID and the auth code when present; the "SynraPay order ID" line is gone because it would repeat the Transaction ID.
+- **1.0.1** — The OpenCart transaction id now matches the SynraPay merchant dashboard's **Transaction ID** (`synrapay_transaction_id` from the status read, falling back to the Direct order id). Webhook settlement makes one best-effort status read for it and never blocks on it. The paid history line lists Merchant order ID, Transaction ID, SynraPay order ID and the auth code when present. No gateway reference is stored or shown any more (it is internal to SynraPay; the 1.0.0 `gateway_ref` column is kept but no longer written). Link table gains `synrapay_transaction_id` + `auth_code` (added automatically when missing).
 - **1.0.0** — First release: hosted-session card fields on the confirm step, webhook, hourly re-check, admin settings.
 
 ## 🙋 Support

@@ -146,7 +146,7 @@ class SynraPay extends \Opencart\System\Engine\Controller
                 'fp'                => $fp,
                 'env'               => $client->env(),
                 'status'            => 'created',
-                'gateway_ref'       => '',
+                'synrapay_transaction_id' => '',
                 'history'           => mb_substr($history, -2000),
                 'attempts'          => (int) ($link['attempts'] ?? 0) + 1,
             ]);
@@ -313,12 +313,16 @@ class SynraPay extends \Opencart\System\Engine\Controller
         $status   = strtolower((string) ($body['status'] ?? ''));
         $awaiting = isset($body['confirmation']) && $body['confirmation'] === 'awaiting_mastercard';
         if (!$awaiting && in_array($status, ['success', 'captured', 'authorized', 'paid'], true)) {
+            // The webhook's transactionId IS the dashboard Transaction ID (one transaction id, equal to
+            // the Direct order_id): no status read is needed for it. The signed body decides.
+            $txn_from_body = trim((string) ($body['transactionId'] ?? ''));
             $this->markPaid((int) $link['order_id'], $order_info, $link, [
-                'order_id'               => $link['direct_order_id'],
-                'status'                 => $status,
-                'amount'                 => $body['amount'] ?? null,
-                'currency'               => $body['currency'] ?? null,
-                'gateway_transaction_id' => $body['gateway_transaction_id'] ?? ($body['transactionId'] ?? ''),
+                'order_id'           => $link['direct_order_id'],
+                'transaction_id'     => $txn_from_body !== '' ? $txn_from_body : (string) $link['direct_order_id'],
+                'status'             => $status,
+                'amount'             => $body['amount'] ?? null,
+                'currency'           => $body['currency'] ?? null,
+                'authorization_code' => $body['authorization_code'] ?? ($body['auth_code'] ?? ''),
             ]);
         } elseif (!$awaiting && in_array($status, ['failed', 'cancelled', 'canceled', 'expired', 'declined'], true)) {
             $this->markFailed((int) $link['order_id'], $link, $status, (string) ($body['error_message'] ?? ''));
@@ -377,13 +381,31 @@ class SynraPay extends \Opencart\System\Engine\Controller
             $this->log->write('SynraPay: amount mismatch on #' . $order_id . ': paid ' . $paid_ccy . ' ' . $paid_amount . ' vs ' . $currency . ' ' . $total);
             return false;
         }
-        $ref = (string) ($data['gateway_transaction_id'] ?? '');
-        $comment = sprintf($this->language->get('text_paid_history'), strtolower((string) ($data['status'] ?? 'captured')), $link['direct_order_id'], $ref !== '' ? ', gateway ref ' . $ref : '');
+        // The SynraPay merchant dashboard's Transaction ID = transaction_id (else the Direct order_id;
+        // one transaction id, the same value). The Direct order_id stays in the link table as the key
+        // for API calls. No gateway reference is stored or shown: it is internal to SynraPay.
+        $txn_id    = \SynraPayDirectClient::transactionRef($data, (string) $link['direct_order_id']);
+        $auth_code = \SynraPayDirectClient::authCode($data);
+        $none      = $this->language->get('text_not_available');
+        $comment = sprintf(
+            $this->language->get('text_paid_history'),
+            strtolower((string) ($data['status'] ?? 'captured')),
+            $link['merchant_order_id'] !== '' ? $link['merchant_order_id'] : $none,
+            $txn_id !== '' ? $txn_id : $none
+        );
+        if ($auth_code !== '') {
+            $comment .= sprintf($this->language->get('text_paid_history_auth'), $auth_code);
+        }
         $this->model_checkout_order->addHistory($order_id, (int) $this->config->get('payment_synra_pay_order_status_id'), $comment, true);
         if (method_exists($this->model_checkout_order, 'editTransactionId')) {
-            $this->model_checkout_order->editTransactionId($order_id, $link['direct_order_id']);
+            $this->model_checkout_order->editTransactionId($order_id, $txn_id);
         }
-        $this->model_extension_synra_pay_payment_synra_pay->saveLink($order_id, ['status' => 'paid', 'gateway_ref' => mb_substr($ref, 0, 128), 'awaiting_since' => null]);
+        $this->model_extension_synra_pay_payment_synra_pay->saveLink($order_id, [
+            'status'                  => 'paid',
+            'synrapay_transaction_id' => mb_substr($txn_id, 0, 64),
+            'auth_code'               => mb_substr($auth_code, 0, 32),
+            'awaiting_since'          => null,
+        ]);
         return true;
     }
 

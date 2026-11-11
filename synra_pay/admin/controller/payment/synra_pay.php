@@ -14,6 +14,15 @@ class SynraPay extends \Opencart\System\Engine\Controller
         $this->load->language(self::ROUTE);
         $this->document->setTitle($this->language->get('heading_title'));
 
+        // Files replaced through Extensions → Installer do not re-run install(): bring an older
+        // link table up to date here (adds missing columns only). Never blocks the settings page.
+        try {
+            $this->load->model(self::ROUTE);
+            $this->model_extension_synra_pay_payment_synra_pay->upgrade();
+        } catch (\Throwable $e) {
+            $this->log->write('SynraPay: link table upgrade skipped: ' . $e->getMessage());
+        }
+
         $data['breadcrumbs'] = [];
         $data['breadcrumbs'][] = [
             'text' => $this->language->get('text_home'),

@@ -70,8 +70,15 @@ class SynraPay extends \Opencart\System\Engine\Model
     public function saveLink(int $order_id, array $data): void
     {
         $existing = $this->getLink($order_id);
+        // `gateway_ref` (1.0.0) is no longer written: the gateway reference is internal to SynraPay.
+        $keys = ['direct_order_id', 'merchant_order_id', 'currency', 'fp', 'env', 'status', 'history'];
+        // 1.0.1 columns: written only once the table has them (a 1.0.0 table is upgraded on the fly).
+        if ((array_key_exists('synrapay_transaction_id', $data) || array_key_exists('auth_code', $data)) && $this->ensureIdColumns()) {
+            $keys[] = 'synrapay_transaction_id';
+            $keys[] = 'auth_code';
+        }
         $cols = [];
-        foreach (['direct_order_id', 'merchant_order_id', 'currency', 'fp', 'env', 'status', 'gateway_ref', 'history'] as $k) {
+        foreach ($keys as $k) {
             if (array_key_exists($k, $data)) {
                 $cols[] = "`" . $k . "` = '" . $this->db->escape((string) $data[$k]) . "'";
             }
@@ -93,6 +100,36 @@ class SynraPay extends \Opencart\System\Engine\Model
         } else {
             $this->db->query("INSERT INTO `" . DB_PREFIX . "synra_pay_order` SET `order_id` = '" . $order_id . "', " . implode(', ', $cols) . ", `date_added` = NOW()");
         }
+    }
+
+    /**
+     * Does the link table have the 1.0.1 id columns? Adds any that are missing (a store that replaced
+     * the files without re-installing). False when that is not possible: the ids then only go into the
+     * order history, settlement is never blocked by it.
+     */
+    private function ensureIdColumns(): bool
+    {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        $columns = [
+            'synrapay_transaction_id' => "VARCHAR(64) NOT NULL DEFAULT '' AFTER `gateway_ref`",
+            'auth_code'               => "VARCHAR(32) NOT NULL DEFAULT '' AFTER `synrapay_transaction_id`",
+        ];
+        try {
+            foreach ($columns as $name => $definition) {
+                $query = $this->db->query("SHOW COLUMNS FROM `" . DB_PREFIX . "synra_pay_order` LIKE '" . $this->db->escape(str_replace('_', '\_', $name)) . "'");
+                if (!$query->num_rows) {
+                    $this->db->query("ALTER TABLE `" . DB_PREFIX . "synra_pay_order` ADD `" . $name . "` " . $definition);
+                }
+            }
+            $ready = true;
+        } catch (\Throwable $e) {
+            $this->log->write('SynraPay: link table upgrade failed: ' . $e->getMessage());
+            $ready = false;
+        }
+        return $ready;
     }
 
     /** Orders the customer left while SynraPay was still settling: between 1 minute and 3 hours old. */
